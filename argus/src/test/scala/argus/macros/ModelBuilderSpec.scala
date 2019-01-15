@@ -1,5 +1,6 @@
 package argus.macros
 
+import argus.schema.Schema
 import org.scalatest.{FlatSpec, Matchers}
 
 /**
@@ -51,7 +52,7 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
     val fields = Field("a", schemaFromSimpleType(SimpleTypes.Integer)) ::
       Field("b", schemaFromSimpleType(SimpleTypes.String)) :: Nil
 
-    val (typ, res) = mb.mkCaseClassDef(List("Foo"), "Bar", fields, None)
+    val (typ, res) = mb.mkCaseClassDef(List("Foo"), "Bar", Some(fields), None, None)
 
     typ should === (tq"Foo.Bar")
     res should === (q"case class Bar(a: Option[Int] = None, b: Option[String] = None)" :: Nil)
@@ -62,14 +63,14 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
       Field("a", schemaFromSimpleType(SimpleTypes.Integer)) ::
       Field("b", schemaFromSimpleType(SimpleTypes.String)) :: Nil
 
-    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Bar", fields, Some("b" :: Nil))
+    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Bar", Some(fields), None, Some("b" :: Nil))
 
     res should === (q"case class Bar(a: Option[Int] = None, b: String)" :: Nil)
   }
 
   it should "reference other classes when type is $ref" in {
     val fields = Field("a", schemaFromRef("#/definitions/Address")) :: Nil
-    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Bar", fields, None)
+    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Bar", Some(fields), None, None)
 
     res should === (q"case class Bar(a: Option[Address] = None)" :: Nil)
   }
@@ -83,7 +84,7 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
       Field("name", schemaFromSimpleType(SimpleTypes.String)) ::
       Field("address", innerSchema) :: Nil
 
-    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Person", fields, None)
+    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Person", Some(fields), None, None)
     res should === (
       q"case class Person(name: Option[String] = None, address: Option[Foo.Person.Address] = None)" ::
       q"""
@@ -235,6 +236,25 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
     showCode(res.head) should include ("case class Bar")
   }
 
+  it should "create an case class for a object schema with no properties but with additional properties" in {
+    val schema = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)),additionalProperties=Some(Root(typ=Some(SimpleTypeTyp(SimpleTypes.String)))))
+    val (typd, res) = mb.mkDef("Foo" :: Nil, "Bar", schema)
+
+    typd should === (tq"Foo.Bar")
+    val code = res.map(showCode(_)).mkString("\n")
+
+    code should include ("case class Bar(additionalParameters: Option[Map[String, String]] = None)")
+  }
+
+  it should "create an case class for a object schema with no properties and no additional properties" in {
+    val schema = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)))
+
+    intercept[Exception]{
+      mb.mkDef("Foo" :: Nil, "Bar", schema)
+    }.getMessage should be ("No parameters or additionalParameters defined for Foo.Bar")
+
+  }
+
   it should "create an type alias for an array schema named using name" in {
     val schema = schemaFromArray(schemaFromSimpleType(SimpleTypes.String))
     val (typ, res) = mb.mkDef("Foo" :: Nil, "Bar", schema)
@@ -264,6 +284,57 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
     code should include ("@union sealed trait BarUnion")
     code should include ("case class BarInt")
     code should include ("case class BarListString")
+  }
+
+  it should "create union types for anyOfs" in {
+    val schema = Root(
+      anyOf=
+      Some(schemaFromSimpleType(SimpleTypes.Integer) ::
+        schemaFromArray(schemaFromSimpleType(SimpleTypes.String)) ::
+        Nil
+    ))
+    val (rtyp, res) = mb.mkDef("Foo" :: Nil, "Bar", schema)
+    val code = res.map(showCode(_)).mkString("\n")
+
+    rtyp should === (tq"Foo.BarUnion")
+    code should include ("@union sealed trait BarUnion")
+    code should include ("case class BarInt")
+    code should include ("case class BarListString")
+  }
+
+  it should "nested anyOf types" in {
+
+    val inner = schemaFromFields(
+      Field("a", schemaFromSimpleType(SimpleTypes.String)) ::
+        Field("b", Root(anyOf=Some(schemaFromSimpleType(SimpleTypes.String) :: schemaFromSimpleType(SimpleTypes.Integer) :: Nil))) ::
+        Nil
+    )
+    val schema = Root(
+      anyOf=
+        Some(inner ::
+          schemaFromSimpleType(SimpleTypes.Null) ::
+          Nil
+        ))
+    val (rtyp, res) = mb.mkDef("Foo" :: Nil, "Bar", schema)
+    val code = res.map(showCode(_)).mkString("\n")
+
+    rtyp should === (tq"Foo.BarUnion")
+    code should include ("@union sealed trait BarUnion")
+    code should include ("case class BarBar1(x: Foo.Bar1) extends BarUnion")
+    code should include ("case class BarNull(x: Null) extends BarUnion")
+    code should include ("case class BarNull(x: Null) extends BarUnion")
+    code should include ("case class Bar1(a: Option[String] = None, b: Option[Foo.Bar1.BUnion] = None)")
+  }
+
+  it should "create union types for list of types" in {
+    val schema = Root(typ=Some(ListSimpleTypeTyp(SimpleTypes.Integer :: SimpleTypes.String :: Nil)))
+    val (rtyp, res) = mb.mkDef("Foo" :: Nil, "Bar", schema)
+    val code = res.map(showCode(_)).mkString("\n")
+
+    rtyp should === (tq"Foo.BarUnion")
+    code should include ("@union sealed trait BarUnion")
+    code should include ("case class BarInt")
+    code should include ("case class BarString")
   }
 
   "myTyp()" should "make a type from a $ref" in {
@@ -394,5 +465,12 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
     val code = res.map(showCode(_)).mkString("\n")
     code should include ("case class Root(a: Option[Int] = None, b: Option[Root.C] = None)")
     code should include ("type C = String")
+  }
+
+  it should "parse the vega-lite schema" in {
+    val schema = Schema.fromURL("https://vega.github.io/schema/vega-lite/v2.json")
+    val (typ: Tree, res) = mb.mkSchemaDef("Root", schema)
+    val code = res.map(showCode(_)).mkString("\n")
+    println(code)
   }
 }

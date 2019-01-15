@@ -102,6 +102,11 @@ class ASTHelpers[U <: Universe](val u: U) {
   def inOption(inner: Tree) = { tq"Option[$inner]" }
 
   /**
+    * Wrap the given type in a Map[String,inner] type
+    */
+  def inStringMap(inner: Tree) = { tq"Map[String, $inner]" }
+
+  /**
     * Wrap the given type in an List type
     */
   def inList(inner: Tree) = { tq"List[$inner]" }

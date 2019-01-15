@@ -4,6 +4,7 @@ import argus.json.JsonDiff
 import cats.syntax.either._
 import io.circe._
 import org.scalatest._
+import argus.macros._
 
 import scala.io.Source
 
@@ -77,6 +78,50 @@ class SchemaSpec extends FlatSpec with Matchers {
     ageFormat should === (Some(Formats.Int64))
   }
 
+  it should "decode array of simple types format" in {
+    val json =
+      """
+        |{
+        |  "type" : "object",
+        |  "properties": {
+        |    "age": {
+        |      "type": ["integer", "string"]
+        |     }
+        |  }
+        |}
+      """.stripMargin
+    val schema = Schema.fromJson(json)
+
+    val ageTyp = for {
+      props <- schema.properties
+      age <- props.find(_.name == "age")
+      typ <- age.schema.typ
+    } yield typ
+
+    ageTyp should === (Some(ListSimpleTypeTyp(List(SimpleTypes.Integer, SimpleTypes.String))))
+  }
+
+  it should "parse an object with only additionalProperties set" in {
+    // TODO work with ref?
+    val json =
+      """
+        |{
+        |  "additionalProperties": {
+        |     "type": "integer"
+        |   },
+        |   "type": "object"
+        |}
+      """.stripMargin
+
+    val schema = Schema.fromJson(json)
+    val additionalPropsFormat = for {
+      addProps <- schema.additionalProperties
+      typ <- addProps.typ
+    } yield typ
+    additionalPropsFormat should be (Some(SimpleTypeTyp(SimpleTypes.Integer)))
+  }
+
+
   it should "decode unknown format" in {
     val json =
       """
@@ -100,4 +145,5 @@ class SchemaSpec extends FlatSpec with Matchers {
 
     ageFormat should === (Some(Formats.Unknown))
   }
+
 }

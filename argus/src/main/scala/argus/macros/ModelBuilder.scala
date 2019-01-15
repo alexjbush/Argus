@@ -43,12 +43,12 @@ class ModelBuilder[U <: Universe](val u: U) {
   /**
     * Main workhorse. Creates case-classes from given fields.
     */
-  def mkCaseClassDef(path: List[String], name: String, fields: List[Field],
+  def mkCaseClassDef(path: List[String], name: String, fields: Option[List[Field]], additionalFields: Option[Root],
                      requiredFields: Option[List[String]]): (Tree, List[Tree]) = {
 
     // Build val defs for each field in case class, keeping track of new class defs created along the way (for nested
     // types
-    val (params, fieldDefs) = fields.foldLeft((List[ValDef](), List[Tree]())) { case ((valDefs, defDefs), field) =>
+    val maybeFields = fields.map(_.foldLeft((List[ValDef](), List[Tree]())) { case ((valDefs, defDefs), field) =>
       // If required, then don't wrap in Option
       val optional = !requiredFields.getOrElse(Nil).contains(field.name)
 
@@ -60,6 +60,18 @@ class ModelBuilder[U <: Universe](val u: U) {
 
       val (valDef, defDef) = mkValDef(path :+ name, field, optional, defval)
       (valDefs :+ valDef, defDefs ++ defDef)
+    })
+
+    val maybeAdditionalFields = additionalFields.map{
+      additionalField =>
+        mkValMapDef(path :+ name, additionalField, "additionalParameters")
+    }
+
+    val (params, fieldDefs): (List[u.ValDef], List[u.Tree]) = (maybeFields, maybeAdditionalFields) match {
+      case (None, None) => throw new Exception(s"No parameters or additionalParameters defined for ${(path :+ name).mkString(".")}")
+      case (Some(f), None) => f
+      case (None, Some((af, ap))) => (List(af), ap)
+      case (Some((p, f)), Some((ap, af))) => (p :+ ap, f ++ af)
     }
 
     val typ = mkTypeSelectPath(path :+ name)
@@ -150,49 +162,56 @@ class ModelBuilder[U <: Universe](val u: U) {
     */
   def mkDef(path: List[String], name: String, schema: Root): (Tree, List[Tree]) = {
 
-    (schema.$ref, schema.enum, schema.typ,  schema.oneOf, schema.multiOf) match {
+    (schema.$ref, schema.enum, schema.typ,  schema.oneOf, schema.anyOf, schema.allOf) match {
 
       // Refs
-      case (Some(ref),_,_,_,_) => {
+      case (Some(ref),_,_,_,_,_) => {
         val toType = mkTypeSelectPath(extractPathFromRef(path.headOption, ref))
         mkTypeAlias(path, name, toType)
       }
 
       // Enums
-      case (_,Some(enum),_,_,_) => {
+      case (_,Some(enum),_,_,_,_) => {
         mkEnumDef(path, name, enum)
       }
 
       // Object (which defines a case-class)
-      case (_,_,Some(SimpleTypeTyp(SimpleTypes.Object)),_,_) => {
-        mkCaseClassDef(path, name, schema.properties.get, schema.required)
+      case (_,_,Some(SimpleTypeTyp(SimpleTypes.Object)),_,_,_) => {
+        mkCaseClassDef(path, name, schema.properties, schema.additionalProperties, schema.required)
       }
 
       // Array, create type alias to List of type defined by schema.items (which itself is a schema)
-      case (_,_,Some(SimpleTypeTyp(SimpleTypes.Array)),_,_) => {
+      case (_,_,Some(SimpleTypeTyp(SimpleTypes.Array)),_,_,_) => {
         val (toType, arrayDefs) = mkType(path, schema, name + "Item")
         val (typ, aliasDefs) = mkTypeAlias(path, name, toType)
         (typ, arrayDefs ++ aliasDefs)
       }
 
       // Alias to an intrinsic type
-      case (_,_,Some(SimpleTypeTyp(st: SimpleType)),_,_) if IntrinsicType.contains(st) => {
+      case (_,_,Some(SimpleTypeTyp(st: SimpleType)),_,_,_) if IntrinsicType.contains(st) => {
         mkTypeAlias(path, name, mkIntrinsicType(st, schema.format))
       }
 
       // OneOfs (aka Union types)
-      case (_,_,_,Some(schemas),_) => {
+      case (_,_,_,Some(schemas),_,_) => {
         mkUnionTypeDef(path, name, schemas)
       }
 
-      // AnyOfs and AllOfs (aka List of type)
+      // AnyOfs (aka also Union types)
+      case (_,_,_,_,Some(schemas),_) => {
+        mkUnionTypeDef(path, name, schemas)
+      }
+
+      // AllOfs (aka List of type)
       // TODO
-      case (_,_,_,_,Some(schemas)) => {
+      case (_,_,_,_,_,Some(schemas)) => {
         // List(mkTypeAlias(name, mkIntrinsicType(st)))
         (EmptyTree, Nil)
       }
 
-      case (_,_,Some(ListSimpleTypeTyp(list)),_,_) => throw new UnsupportedOperationException("Lists of simple types aren't supported yet")
+      // List of types
+      case (_,_,Some(ListSimpleTypeTyp(list)),_,_,_) =>
+        mkUnionTypeDef(path, name, schemaFromListSimpleType(list))
 
       // Nothing in the schema? Then nothing to define
       case _ => {
@@ -220,10 +239,10 @@ class ModelBuilder[U <: Universe](val u: U) {
     val (_, defDefs) = mkSchemaDef(defaultName, schema.justDefinitions, path)
 
     // If references existing schema, use that instead
-    (schema.typ, schema.$ref, schema.enum, schema.oneOf, schema.multiOf) match {
+    (schema.typ, schema.$ref, schema.enum, schema.oneOf, schema.anyOf, schema.allOf) match {
 
       // A $ref takes precedence over everything
-      case (_,Some(ref),_,_,_) => {
+      case (_,Some(ref),_,_,_,_) => {
 
         // XXX This is a bit broken. It works if the type exactly matches the reference string. But that's not
         // always the case (e.g. union types have "union" attached to end of their name). Ideally we'd maintain a mapping
@@ -234,7 +253,7 @@ class ModelBuilder[U <: Universe](val u: U) {
       }
 
       // Handle array types
-      case (Some(SimpleTypeTyp(SimpleTypes.Array)),_,_,_,_) => {
+      case (Some(SimpleTypeTyp(SimpleTypes.Array)),_,_,_,_,_) => {
         val itemsSchema = schema.items match {
           case Some(ItemsRoot(s)) => s
           case Some(ItemsSchemaArray(sa)) =>
@@ -248,15 +267,16 @@ class ModelBuilder[U <: Universe](val u: U) {
       }
 
       // Make intrinsic type reference
-      case (Some(SimpleTypeTyp(st: SimpleType)),_,_,_,_) if IntrinsicType.contains(st) => {
+      case (Some(SimpleTypeTyp(st: SimpleType)),_,_,_,_,_) if IntrinsicType.contains(st) => {
         (mkIntrinsicType(st, schema.format), defDefs)
       }
 
       // If it contains inline definitions, then delegate to mkSchema, and name type after the parameter name.
-      case (Some(SimpleTypeTyp(SimpleTypes.Object)),_,_,_,_)
-           | (_,_,Some(_),_,_)
-           | (_,_,_,Some(_),_)
-           | (_,_,_,_,Some(_)) => {
+      case (Some(SimpleTypeTyp(SimpleTypes.Object)),_,_,_,_,_)
+           | (_,_,Some(_),_,_,_)
+           | (_,_,_,Some(_),_,_)
+           | (_,_,_,_,Some(_),_)
+           | (_,_,_,_,_,Some(_))=> {
 
         // NB: We ignore defDefs here since we're re-calling mkSchema
         mkSchemaDef(defaultName, schema, path)
@@ -304,6 +324,20 @@ class ModelBuilder[U <: Universe](val u: U) {
         case Some(dval) => q"val ${TermName(field.name)}: ${typ} = ${dval}"
       }
     }).asInstanceOf[ValDef]
+
+    (valDef, defs)
+  }
+
+  /**
+    * Make a additionalParameters map definition
+    */
+  def mkValMapDef(path: List[String], schema: Root, fieldName: String): (ValDef, List[Tree]) = {
+
+    val (typ, defs) = mkType(path, schema, fieldName.capitalize)
+
+    val valDef = {
+      q"val ${TermName(fieldName)}: ${inOption(inStringMap(typ))} = ${q"None"}"
+    }.asInstanceOf[ValDef]
 
     (valDef, defs)
   }

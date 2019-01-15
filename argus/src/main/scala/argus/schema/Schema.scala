@@ -33,7 +33,7 @@ object Schema {
 
     result match {
       case Right(root) => root
-      case Left(failure) => throw new Exception("Error parsing schema: " + failure.toString)
+      case Left(failure) => throw new Exception("Error parsing schema: " + failure.toString, failure)
     }
   }
 
@@ -41,6 +41,11 @@ object Schema {
     * Convenience method for creating a schema from a simple type (e.g. { "type" : "string" }
     */
   def schemaFromSimpleType(st: SimpleType) = Root(typ=Some(SimpleTypeTyp(st)))
+
+  /**
+    * Convenience method for creating a list of schemas from a list of simple types (e.g. { "type" : ["string", "integer"] }
+    */
+  def schemaFromListSimpleType(lst: List[SimpleType]): List[Root] = lst map schemaFromSimpleType
 
   /**
     * Convenience method for creating schemas that represent an object (based on given fields)
@@ -79,7 +84,7 @@ object Schema {
 
   case class Root
     ($schema: Option[String] = None, id: Option[String] = None, title: Option[String] = None, description: Option[String] = None,
-    definitions: Option[List[Field]] = None, properties: Option[List[Field]] = None,
+    definitions: Option[List[Field]] = None, properties: Option[List[Field]] = None, additionalProperties: Option[Root] = None,
     typ: Option[Typ] = None, enum: Option[List[String]] = None,
     oneOf: Option[SchemaArray] = None, anyOf: Option[SchemaArray] = None, allOf: Option[SchemaArray] = None,
     not: Option[Root] = None, required: Option[StringArray] = None, items: Option[Items] = None, format: Option[Format] = None,
@@ -89,9 +94,6 @@ object Schema {
     def toJson = this.asJson
     def toJsonString = this.asJson.pretty(printer)
     val printer = Printer.spaces2.copy(dropNullValues = true)
-
-    // Convenience method since any/all of are treated roughly the same by the generated code
-    def multiOf = anyOf.orElse(allOf)
 
     def justDefinitions = Root(definitions=this.definitions)
   }
@@ -109,6 +111,7 @@ object Schema {
       description <- c.downField("description").as[Option[String]]
       definitions <- c.downField("definitions").as[Option[List[Field]]]
       properties <- c.downField("properties").as[Option[List[Field]]]
+      additionalProperties <- c.downField("additionalProperties").as[Option[Root]]
       typ <- c.downField("type").as[Option[Typ]]
       enum <- c.downField("enum").as[Option[List[Json]]].map(toStringList)
       oneOf <- c.downField("oneOf").as[Option[SchemaArray]]
@@ -123,7 +126,7 @@ object Schema {
       exclusiveMinimum <- c.downField("exclusiveMinimum").as[Option[Boolean]]
       exclusiveMaximum <- c.downField("exclusiveMaximum").as[Option[Boolean]]
       $ref <- c.downField("$ref").as[Option[String]]
-    } yield Root($schema, id, title, description, definitions, properties, typ, enum, oneOf, anyOf, allOf, not, required,
+    } yield Root($schema, id, title, description, definitions, properties, additionalProperties, typ, enum, oneOf, anyOf, allOf, not, required,
                  items, format, minimum, maximum, exclusiveMinimum, exclusiveMaximum, $ref))
 
   implicit val RootEncoder: Encoder[Root] =
@@ -134,6 +137,7 @@ object Schema {
       "description" -> r.description.asJson,
       "definitions" -> r.definitions.asJson,
       "properties" -> r.properties.asJson,
+      "additionalProperties" -> r.additionalProperties.asJson,
       "type" -> r.typ.asJson,
       "enum" -> toJsonList(r.enum).asJson,
       "oneOf" -> r.oneOf.asJson,
