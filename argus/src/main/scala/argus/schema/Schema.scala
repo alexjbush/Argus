@@ -84,7 +84,7 @@ object Schema {
 
   case class Root
     ($schema: Option[String] = None, id: Option[String] = None, title: Option[String] = None, description: Option[String] = None,
-    definitions: Option[List[Field]] = None, properties: Option[List[Field]] = None, additionalProperties: Option[Root] = None,
+    definitions: Option[List[Field]] = None, properties: Option[List[Field]] = None, additionalProperties: Either[Boolean, Root] = Left(true),
     typ: Option[Typ] = None, enum: Option[List[String]] = None,
     oneOf: Option[SchemaArray] = None, anyOf: Option[SchemaArray] = None, allOf: Option[SchemaArray] = None,
     not: Option[Root] = None, required: Option[StringArray] = None, items: Option[Items] = None, format: Option[Format] = None,
@@ -111,7 +111,7 @@ object Schema {
       description <- c.downField("description").as[Option[String]]
       definitions <- c.downField("definitions").as[Option[List[Field]]]
       properties <- c.downField("properties").as[Option[List[Field]]]
-      additionalProperties <- c.downField("additionalProperties").as[Option[Root]]
+      additionalProperties <- c.downField("additionalProperties").as[Either[Boolean, Root]]
       typ <- c.downField("type").as[Option[Typ]]
       enum <- c.downField("enum").as[Option[List[Json]]].map(toStringList)
       oneOf <- c.downField("oneOf").as[Option[SchemaArray]]

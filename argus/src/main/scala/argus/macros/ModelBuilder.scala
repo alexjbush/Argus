@@ -43,7 +43,7 @@ class ModelBuilder[U <: Universe](val u: U) {
   /**
     * Main workhorse. Creates case-classes from given fields.
     */
-  def mkCaseClassDef(path: List[String], name: String, fields: Option[List[Field]], additionalFields: Option[Root],
+  def mkCaseClassDef(path: List[String], name: String, fields: Option[List[Field]], additionalFields: Either[Boolean, Root],
                      requiredFields: Option[List[String]]): (Tree, List[Tree]) = {
 
     // Build val defs for each field in case class, keeping track of new class defs created along the way (for nested
@@ -62,9 +62,10 @@ class ModelBuilder[U <: Universe](val u: U) {
       (valDefs :+ valDef, defDefs ++ defDef)
     })
 
-    val maybeAdditionalFields = additionalFields.map{
-      additionalField =>
-        mkValMapDef(path :+ name, additionalField, "additionalParameters")
+    val maybeAdditionalFields = additionalFields match {
+      case Right(field) => Some(mkValMapDef(path :+ name, field, "additionalParameters"))
+      case Left(false) => None
+      case Left(true) => Some(mkValMapDef(path :+ name, Root(), "additionalParameters"))
     }
 
     val (params, fieldDefs): (List[u.ValDef], List[u.Tree]) = (maybeFields, maybeAdditionalFields) match {
