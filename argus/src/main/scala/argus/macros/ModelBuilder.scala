@@ -43,7 +43,7 @@ class ModelBuilder[U <: Universe](val u: U) {
   /**
     * Main workhorse. Creates case-classes from given fields.
     */
-  def mkCaseClassDef(path: List[String], name: String, fields: Option[List[Field]], additionalFields: Either[Boolean, Root],
+  def mkCaseClassDef(path: List[String], name: String, fields: Option[List[Field]], additionalFields: Either[Boolean, TypeAndRef],
                      requiredFields: Option[List[String]]): (Tree, List[Tree]) = {
 
     // Build val defs for each field in case class, keeping track of new class defs created along the way (for nested
@@ -63,13 +63,13 @@ class ModelBuilder[U <: Universe](val u: U) {
     })
 
     val maybeAdditionalFields = additionalFields match {
-      case Right(field) => Some(mkValMapDef(path :+ name, field, "additionalParameters"))
+      case Right(field) => Some(mkValMapDef(path :+ name, field.asRoot, "additionalProperties"))
       case Left(false) => None
-      case Left(true) => Some(mkValMapDef(path :+ name, Root(), "additionalParameters"))
+      case Left(true) => Some(mkValMapDef(path :+ name, Root(), "additionalProperties"))
     }
 
     val (params, fieldDefs): (List[u.ValDef], List[u.Tree]) = (maybeFields, maybeAdditionalFields) match {
-      case (None, None) => throw new Exception(s"No parameters or additionalParameters defined for ${(path :+ name).mkString(".")}")
+      case (None, None) => throw new Exception(s"No properties or additionalProperties defined for ${(path :+ name).mkString(".")}")
       case (Some(f), None) => f
       case (None, Some((af, ap))) => (List(af), ap)
       case (Some((p, f)), Some((ap, af))) => (p :+ ap, f ++ af)
@@ -330,7 +330,7 @@ class ModelBuilder[U <: Universe](val u: U) {
   }
 
   /**
-    * Make a additionalParameters map definition
+    * Make a additionalProperties map definition
     */
   def mkValMapDef(path: List[String], schema: Root, fieldName: String): (ValDef, List[Tree]) = {
 

@@ -50,7 +50,7 @@ object Schema {
   /**
     * Convenience method for creating schemas that represent an object (based on given fields)
     */
-  def schemaFromFields(fields: List[Field]) = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)), properties=Some(fields))
+  def schemaFromFields(fields: List[Field]) = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)),properties=Some(fields),additionalProperties=Left(false))
 
   /**
     * Convenience method for creating schemas that reference another schema
@@ -84,7 +84,7 @@ object Schema {
 
   case class Root
     ($schema: Option[String] = None, id: Option[String] = None, title: Option[String] = None, description: Option[String] = None,
-    definitions: Option[List[Field]] = None, properties: Option[List[Field]] = None, additionalProperties: Either[Boolean, Root] = Left(true),
+    definitions: Option[List[Field]] = None, properties: Option[List[Field]] = None, additionalProperties: Either[Boolean, TypeAndRef] = Left(true),
     typ: Option[Typ] = None, enum: Option[List[String]] = None,
     oneOf: Option[SchemaArray] = None, anyOf: Option[SchemaArray] = None, allOf: Option[SchemaArray] = None,
     not: Option[Root] = None, required: Option[StringArray] = None, items: Option[Items] = None, format: Option[Format] = None,
@@ -96,6 +96,16 @@ object Schema {
     val printer = Printer.spaces2.copy(dropNullValues = true)
 
     def justDefinitions = Root(definitions=this.definitions)
+  }
+
+  case class TypeAndRef
+  (typ: Option[Typ] = None, $ref: Option[String] = None) {
+
+    def toJson = this.asJson
+    def toJsonString = this.asJson.pretty(printer)
+    val printer = Printer.spaces2.copy(dropNullValues = true)
+
+    def asRoot: Root = Root(typ=typ, $ref=$ref)
   }
 
   // Useful for dealing with enums, which we leave as raw Json, but because we don't want to expose our Json implementation
@@ -111,7 +121,7 @@ object Schema {
       description <- c.downField("description").as[Option[String]]
       definitions <- c.downField("definitions").as[Option[List[Field]]]
       properties <- c.downField("properties").as[Option[List[Field]]]
-      additionalProperties <- c.downField("additionalProperties").as[Either[Boolean, Root]]
+      additionalProperties <- c.downField("additionalProperties").as[Option[Either[Boolean, TypeAndRef]]]
       typ <- c.downField("type").as[Option[Typ]]
       enum <- c.downField("enum").as[Option[List[Json]]].map(toStringList)
       oneOf <- c.downField("oneOf").as[Option[SchemaArray]]
@@ -126,7 +136,7 @@ object Schema {
       exclusiveMinimum <- c.downField("exclusiveMinimum").as[Option[Boolean]]
       exclusiveMaximum <- c.downField("exclusiveMaximum").as[Option[Boolean]]
       $ref <- c.downField("$ref").as[Option[String]]
-    } yield Root($schema, id, title, description, definitions, properties, additionalProperties, typ, enum, oneOf, anyOf, allOf, not, required,
+    } yield Root($schema, id, title, description, definitions, properties, additionalProperties.getOrElse(Left(true)), typ, enum, oneOf, anyOf, allOf, not, required,
                  items, format, minimum, maximum, exclusiveMinimum, exclusiveMaximum, $ref))
 
   implicit val RootEncoder: Encoder[Root] =
@@ -154,6 +164,30 @@ object Schema {
       "$ref" -> r.$ref.asJson
     ))
 
+  implicit val TypeAndRefDecoder: Decoder[TypeAndRef] =
+    Decoder.instance((c) => for {
+      typ <- c.downField("type").as[Option[Typ]]
+      $ref <- c.downField("$ref").as[Option[String]]
+    } yield TypeAndRef(typ, $ref))
+
+  implicit val TypeAndRefEncoder: Encoder[TypeAndRef] =
+    Encoder.instance((r: TypeAndRef) => Json.obj(
+      "type" -> r.typ.asJson,
+      "$ref" -> r.$ref.asJson
+    ))
+
+  implicit val AdditionalPropertiesDecoder: Decoder[Either[Boolean, TypeAndRef]] = {
+    c: HCursor =>
+      c.as[Boolean] match {
+        case Right(a) => Right(Left(a))
+        case _ => c.as[TypeAndRef].map(Right(_))
+      }
+  }
+
+  implicit val AdditionalPropertiesEncoder: Encoder[Either[Boolean, TypeAndRef]] = {
+    o: Either[Boolean, TypeAndRef] =>
+      o.fold(_.asJson, _.asJson)
+  }
 
   sealed trait Typ
   case class SimpleTypeTyp(x: SimpleType) extends Typ

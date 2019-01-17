@@ -52,7 +52,7 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
     val fields = Field("a", schemaFromSimpleType(SimpleTypes.Integer)) ::
       Field("b", schemaFromSimpleType(SimpleTypes.String)) :: Nil
 
-    val (typ, res) = mb.mkCaseClassDef(List("Foo"), "Bar", Some(fields), None, None)
+    val (typ, res) = mb.mkCaseClassDef(List("Foo"), "Bar", Some(fields), Left(false), None)
 
     typ should === (tq"Foo.Bar")
     res should === (q"case class Bar(a: Option[Int] = None, b: Option[String] = None)" :: Nil)
@@ -63,14 +63,14 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
       Field("a", schemaFromSimpleType(SimpleTypes.Integer)) ::
       Field("b", schemaFromSimpleType(SimpleTypes.String)) :: Nil
 
-    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Bar", Some(fields), None, Some("b" :: Nil))
+    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Bar", Some(fields), Left(false), Some("b" :: Nil))
 
     res should === (q"case class Bar(a: Option[Int] = None, b: String)" :: Nil)
   }
 
   it should "reference other classes when type is $ref" in {
     val fields = Field("a", schemaFromRef("#/definitions/Address")) :: Nil
-    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Bar", Some(fields), None, None)
+    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Bar", Some(fields), Left(false), None)
 
     res should === (q"case class Bar(a: Option[Address] = None)" :: Nil)
   }
@@ -84,7 +84,7 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
       Field("name", schemaFromSimpleType(SimpleTypes.String)) ::
       Field("address", innerSchema) :: Nil
 
-    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Person", Some(fields), None, None)
+    val (_, res) = mb.mkCaseClassDef(List("Foo"), "Person", Some(fields), Left(false), None)
     res should === (
       q"case class Person(name: Option[String] = None, address: Option[Foo.Person.Address] = None)" ::
       q"""
@@ -237,21 +237,21 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
   }
 
   it should "create an case class for a object schema with no properties but with additional properties" in {
-    val schema = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)),additionalProperties=Some(Root(typ=Some(SimpleTypeTyp(SimpleTypes.String)))))
+    val schema = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)),additionalProperties=Right(TypeAndRef(typ=Some(SimpleTypeTyp(SimpleTypes.String)))))
     val (typd, res) = mb.mkDef("Foo" :: Nil, "Bar", schema)
 
     typd should === (tq"Foo.Bar")
     val code = res.map(showCode(_)).mkString("\n")
 
-    code should include ("case class Bar(additionalParameters: Option[Map[String, String]] = None)")
+    code should include ("case class Bar(additionalProperties: Option[Map[String, String]] = None)")
   }
 
   it should "create an case class for a object schema with no properties and no additional properties" in {
-    val schema = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)))
+    val schema = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)),additionalProperties=Left(false))
 
     intercept[Exception]{
       mb.mkDef("Foo" :: Nil, "Bar", schema)
-    }.getMessage should be ("No parameters or additionalParameters defined for Foo.Bar")
+    }.getMessage should be ("No properties or additionalProperties defined for Foo.Bar")
 
   }
 
@@ -314,7 +314,8 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
         Some(inner ::
           schemaFromSimpleType(SimpleTypes.Null) ::
           Nil
-        ))
+        ),
+      additionalProperties=Left(false))
     val (rtyp, res) = mb.mkDef("Foo" :: Nil, "Bar", schema)
     val code = res.map(showCode(_)).mkString("\n")
 
@@ -347,9 +348,9 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
 
   it should "make a typ from an array" in {
     val schema = schemaFromArray(schemaFromSimpleType(SimpleTypes.Integer))
-    val (typ, defs) = mb.mkType(Nil, schema, "Foo")
+    val (typt, defs) = mb.mkType(Nil, schema, "Foo")
 
-    typ should === (tq"List[Int]")
+    typt should === (tq"List[Int]")
     defs should be (empty)
   }
 
@@ -358,10 +359,10 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
       Field("a", schemaFromSimpleType(SimpleTypes.Integer)) ::
       Field("b", schemaFromRef("#/definitions/B")) ::
       Nil
-    ))
-    val (typ, defs) = mb.mkType(Nil, schema, "Foo")
+    )).copy(additionalProperties = Left(false))
+    val (typt, defs) = mb.mkType(Nil, schema, "Foo")
 
-    typ should === (tq"List[Foo]")
+    typt should === (tq"List[Foo]")
     defs.map(showCode(_)).mkString("\n") should include("case class Foo(a: Option[Int] = None, b: Option[B] = None)")
   }
 
@@ -412,7 +413,7 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
         Nil
       )) ::
       Nil
-    )
+    ).copy(additionalProperties=Left(false))
     val (valDef, defDefs) = mb.mkValDef(List("Root", "Foo"), Field("a", schema), true)
     val defCode = defDefs.map(showCode(_)).mkString
 
@@ -441,7 +442,7 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
       )) ::
       Nil
 
-    val (typ: Tree, res) = mb.mkSchemaDef("Root", schema=base.copy(definitions=Some(defs)), "Foo" :: Nil)
+    val (typ: Tree, res) = mb.mkSchemaDef("Root", schema=base.copy(definitions=Some(defs),additionalProperties=Left(false)), "Foo" :: Nil)
     val code = res.map(showCode(_)).mkString("\n")
 
     typ should === (tq"Foo.Root")
@@ -471,6 +472,6 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
     val schema = Schema.fromURL("https://vega.github.io/schema/vega-lite/v2.json")
     val (typ: Tree, res) = mb.mkSchemaDef("Root", schema)
     val code = res.map(showCode(_)).mkString("\n")
-    println(code)
+    //println(code)
   }
 }

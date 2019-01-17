@@ -116,9 +116,8 @@ class SchemaSpec extends FlatSpec with Matchers {
     val schema = Schema.fromJson(json)
     val additionalPropsFormat = for {
       addProps <- schema.additionalProperties
-      typ <- addProps.typ
-    } yield typ
-    additionalPropsFormat should be (Some(SimpleTypeTyp(SimpleTypes.Integer)))
+    } yield addProps.typ
+    additionalPropsFormat should be (Right(Some(SimpleTypeTyp(SimpleTypes.Integer))))
   }
 
 
