@@ -50,7 +50,7 @@ object Schema {
   /**
     * Convenience method for creating schemas that represent an object (based on given fields)
     */
-  def schemaFromFields(fields: List[Field]) = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)),properties=Some(fields),additionalProperties=Left(false))
+  def schemaFromFields(fields: List[Field]) = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Object)),properties=Some(fields),additionalProperties=Some(Left(false)))
 
   /**
     * Convenience method for creating schemas that reference another schema
@@ -84,7 +84,7 @@ object Schema {
 
   case class Root
     ($schema: Option[String] = None, id: Option[String] = None, title: Option[String] = None, description: Option[String] = None,
-    definitions: Option[List[Field]] = None, properties: Option[List[Field]] = None, additionalProperties: Either[Boolean, TypeAndRef] = Left(true),
+    definitions: Option[List[Field]] = None, properties: Option[List[Field]] = None, additionalProperties: Option[Either[Boolean, TypeAndRef]] = None,
     typ: Option[Typ] = None, enum: Option[List[String]] = None,
     oneOf: Option[SchemaArray] = None, anyOf: Option[SchemaArray] = None, allOf: Option[SchemaArray] = None,
     not: Option[Root] = None, required: Option[StringArray] = None, items: Option[Items] = None, format: Option[Format] = None,
@@ -136,7 +136,7 @@ object Schema {
       exclusiveMinimum <- c.downField("exclusiveMinimum").as[Option[Boolean]]
       exclusiveMaximum <- c.downField("exclusiveMaximum").as[Option[Boolean]]
       $ref <- c.downField("$ref").as[Option[String]]
-    } yield Root($schema, id, title, description, definitions, properties, additionalProperties.getOrElse(Left(true)), typ, enum, oneOf, anyOf, allOf, not, required,
+    } yield Root($schema, id, title, description, definitions, properties, additionalProperties, typ, enum, oneOf, anyOf, allOf, not, required,
                  items, format, minimum, maximum, exclusiveMinimum, exclusiveMaximum, $ref))
 
   implicit val RootEncoder: Encoder[Root] =
