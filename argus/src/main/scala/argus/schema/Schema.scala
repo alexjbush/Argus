@@ -70,6 +70,12 @@ object Schema {
   def schemaFromArray(schema: Root) = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Array)), items=Some(ItemsRoot(schema)))
 
   /**
+    * Convenience method for creating schemas from an array containing a schema array
+    * @param schema A list of schemas that defines the type of the array
+    */
+  def schemaFromSchemaArray(schemas: List[Root]) = Root(typ=Some(SimpleTypeTyp(SimpleTypes.Array)), items=Some(ItemsSchemaArray(schemas)))
+
+  /**
     * Convenience method for creating schemas based on a union type of the listed schemas (aka oneOf)
     */
   def schemaFromUnionType(schemas: List[Root]) = Root(oneOf=Some(schemas))

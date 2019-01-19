@@ -257,8 +257,8 @@ class ModelBuilder[U <: Universe](val u: U) {
       case (Some(SimpleTypeTyp(SimpleTypes.Array)),_,_,_,_,_) => {
         val itemsSchema = schema.items match {
           case Some(ItemsRoot(s)) => s
-          case Some(ItemsSchemaArray(sa)) =>
-            throw new UnsupportedOperationException("SchemaArrays within items are currently unsupported: " + schema)
+            // Approach here is to create a case class that looks like a tuple, could be improved
+          case Some(ItemsSchemaArray(sa)) => schemaFromFields(sa.zipWithIndex.map {case (r, i) => Field(s"_${i+1}", r)})
           case None =>
             throw new Exception("Array types must have an items property within the schema. " + schema)
         }

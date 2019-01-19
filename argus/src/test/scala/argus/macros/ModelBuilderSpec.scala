@@ -366,6 +366,14 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
     defs.map(showCode(_)).mkString("\n") should include("case class Foo(a: Option[Int] = None, b: Option[B] = None)")
   }
 
+  it should "make a typ from an array containing schema array" in {
+    val schema = schemaFromSchemaArray(schemaFromSimpleType(SimpleTypes.Integer)::schemaFromSimpleType(SimpleTypes.Integer)::Nil).copy(additionalProperties=Some(Left(false)))
+    val (typt, defs) = mb.mkType(Nil, schema, "Foo")
+
+    typt should === (tq"List[Foo]")
+    defs.map(showCode(_)).mkString("\n") should include("case class Foo(_1: Option[Int] = None, _2: Option[Int] = None)")
+  }
+
   it should "make a typ from intrinsic types" in {
     mb.mkType(Nil, schemaFromSimpleType(SimpleTypes.Integer), "Foo")._1 should === (tq"Int")
     mb.mkType(Nil, schemaFromSimpleType(SimpleTypes.Number), "Foo")._1 should === (tq"Double")
@@ -469,7 +477,7 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
   }
 
   it should "parse the vega-lite schema" in {
-    val schema = Schema.fromURL("https://vega.github.io/schema/vega-lite/v2.json")
+    val schema = Schema.fromURL("https://vega.github.io/schema/vega-lite/v3.json")
     val (typ: Tree, res) = mb.mkSchemaDef("Root", schema)
     val code = res.map(showCode(_)).mkString("\n")
     //println(code)
