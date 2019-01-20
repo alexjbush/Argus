@@ -182,18 +182,18 @@ object Schema {
       "$ref" -> r.$ref.asJson
     ))
 
-  implicit val AdditionalPropertiesDecoder: Decoder[Either[Boolean, TypeAndRef]] = {
-    c: HCursor =>
+  implicit val AdditionalPropertiesDecoder: Decoder[Either[Boolean, TypeAndRef]] =
+    Decoder.instance((c) =>
       c.as[Boolean] match {
         case Right(a) => Right(Left(a))
         case _ => c.as[TypeAndRef].map(Right(_))
       }
-  }
+    )
 
-  implicit val AdditionalPropertiesEncoder: Encoder[Either[Boolean, TypeAndRef]] = {
-    o: Either[Boolean, TypeAndRef] =>
-      o.fold(_.asJson, _.asJson)
-  }
+  implicit val AdditionalPropertiesEncoder: Encoder[Either[Boolean, TypeAndRef]] =
+    Encoder.instance((e: Either[Boolean, TypeAndRef]) =>
+      e.fold(_.asJson, _.asJson)
+    )
 
   sealed trait Typ
   case class SimpleTypeTyp(x: SimpleType) extends Typ
