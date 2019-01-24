@@ -459,6 +459,29 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
     code should include ("case class Address(number: Option[Int] = None)")
   }
 
+  "mkSchemaDef()" should "make a schema and escape types" in {
+    val base = schemaFromFields(
+      Field("name",    schemaFromRef("#/definitions/Name")) ::
+        Field("address", schemaFromRef("#/definitions/Address<test,|test>")) ::
+        Field("id",      schemaFromSimpleType(SimpleTypes.Integer)) ::
+        Nil
+    )
+    val defs =
+      Field("Name", schemaFromSimpleType(SimpleTypes.String)) ::
+        Field("Address<test,|test>", schemaFromFields(
+          Field("number", schemaFromSimpleType(SimpleTypes.Integer)) :: Nil
+        )) ::
+        Nil
+
+    val (typ: Tree, res) = mb.mkSchemaDef("Root", schema=base.copy(definitions=Some(defs),additionalProperties=Some(Left(false))), "Foo" :: Nil)
+    val code = res.map(showCode(_)).mkString("\n")
+
+    typ should === (tq"Foo.Root")
+    code should include ("type Name = String")
+    code should include ("case class AddressTestTest(number: Option[Int] = None)")
+    code should include ("case class Root(name: Option[Name] = None, address: Option[AddressTestTest] = None, id: Option[Int] = None)")
+  }
+
   it should "support definitions nested within properties" in {
     val innerDef =
       Field("C", schemaFromSimpleType(SimpleTypes.String)) ::

@@ -76,12 +76,12 @@ class ModelBuilder[U <: Universe](val u: U) {
     }
 
     val typ = mkTypeSelectPath(path :+ name)
-    val ccDef = q"""case class ${ TypeName(name) } (..$params)"""
+    val ccDef = q"""case class ${ TypeName(nameFromJson(name)) } (..$params)"""
 
     val defs = if (fieldDefs.isEmpty)
       ccDef :: Nil
     else
-      ccDef :: q"""object ${TermName(name)} { ..$fieldDefs }""" :: Nil
+      ccDef :: q"""object ${TermName(nameFromJson(name))} { ..$fieldDefs }""" :: Nil
 
     (typ, defs)
   }
@@ -95,7 +95,7 @@ class ModelBuilder[U <: Universe](val u: U) {
     * @return List[Tree] containing all the definitions
     */
   def mkEnumDef(path: List[String], baseName: String, enum: List[String]): (Tree, List[Tree]) = {
-    val baseTyp = TypeName(baseName)
+    val baseTyp = TypeName(nameFromJson(baseName))
     val baseDef = q"@enum sealed trait $baseTyp extends scala.Product with scala.Serializable { def json: String }"
 
     val memberDefs = enum.map { m =>
@@ -104,7 +104,7 @@ class ModelBuilder[U <: Universe](val u: U) {
     }
 
     val typ = mkTypeSelectPath(path :+ baseTyp.toString)
-    val defs = baseDef :: q"""object ${TermName(baseName + "Enums")} { ..$memberDefs }""" :: Nil
+    val defs = baseDef :: q"""object ${TermName(nameFromJson(baseName) + "Enums")} { ..$memberDefs }""" :: Nil
 
     (typ, defs)
   }
@@ -113,7 +113,7 @@ class ModelBuilder[U <: Universe](val u: U) {
     * The fully-qualified name of an enum case.
     */
   def enumName(ownerName: String, fieldName: String, caseName: String): Select = {
-    Select(Select(Ident(TermName(ownerName)), TermName(fieldName.capitalize + "Enums")), TermName(nameFromJson(caseName)))
+    Select(Select(Ident(TermName(ownerName)), TermName(nameFromJson(fieldName) + "Enums")), TermName(nameFromJson(caseName)))
   }
 
   /**
@@ -126,7 +126,7 @@ class ModelBuilder[U <: Universe](val u: U) {
     * @return A list of definitions created to support the union type.
     */
   def mkUnionTypeDef(path: List[String], baseName: String, schemas: List[Root]): (Tree, List[Tree]) = {
-    val baseTyp = TypeName(baseName + "Union")
+    val baseTyp = TypeName(nameFromJson(baseName) + "Union")
     val baseDef = q"@union sealed trait $baseTyp extends scala.Product with scala.Serializable"
 
     val (memberDefs, defDefs) = schemas.zipWithIndex.foldLeft(List[Tree](), List[Tree]()) {
@@ -138,7 +138,7 @@ class ModelBuilder[U <: Universe](val u: U) {
         val (typ, defs) = mkType(path, schema, defaultName)
 
         // E.g. FooInt
-        val name = TypeName(baseName + nameFromType(typ, false))
+        val name = TypeName(nameFromJson(baseName + nameFromType(typ, false)))
 
         val memberDef = q"case class $name(x: $typ) extends $baseTyp"
         (md :+ memberDef,  dd ++ defs)
@@ -304,7 +304,7 @@ class ModelBuilder[U <: Universe](val u: U) {
     */
   def mkAnyWrapper(path: List[String], name: String): (Tree, List[Tree]) = {
     val typ = mkTypeSelectPath(path :+ name)
-    (typ, q"case class ${TypeName(name)}(x: Any)" :: Nil)
+    (typ, q"case class ${TypeName(nameFromJson(name))}(x: Any)" :: Nil)
   }
 
   /**
@@ -318,11 +318,11 @@ class ModelBuilder[U <: Universe](val u: U) {
 
     val valDef = (if (optional) {
       val dval = defval.map({ x => q"Some(${x})" }).getOrElse(q"None")
-      q"val ${TermName(field.name)}: ${inOption(typ)} = ${dval}"
+      q"val ${TermName(nameFromJson(field.name, false))}: ${inOption(typ)} = ${dval}"
     } else {
       defval match {
-        case None => q"val ${TermName(field.name)}: ${typ}"
-        case Some(dval) => q"val ${TermName(field.name)}: ${typ} = ${dval}"
+        case None => q"val ${TermName(nameFromJson(field.name, false))}: ${typ}"
+        case Some(dval) => q"val ${TermName(nameFromJson(field.name, false))}: ${typ} = ${dval}"
       }
     }).asInstanceOf[ValDef]
 
@@ -337,7 +337,7 @@ class ModelBuilder[U <: Universe](val u: U) {
     val (typ, defs) = mkType(path, schema, fieldName.capitalize)
 
     val valDef = {
-      q"val ${TermName(fieldName)}: ${inOption(inStringMap(typ))} = ${q"None"}"
+      q"val ${TermName(nameFromJson(fieldName, false))}: ${inOption(inStringMap(typ))} = ${q"None"}"
     }.asInstanceOf[ValDef]
 
     (valDef, defs)
@@ -348,7 +348,7 @@ class ModelBuilder[U <: Universe](val u: U) {
     * @return A tuple containing the created type, and a type alias definition
     */
   def mkTypeAlias(path: List[String], name: String, toType: Tree): (Tree, List[Tree]) = {
-    (mkTypeSelectPath(path :+ name), q"type ${TypeName(name)} = $toType" :: Nil)
+    (mkTypeSelectPath(path :+ name), q"type ${TypeName(nameFromJson(name))} = $toType" :: Nil)
   }
 
   /**

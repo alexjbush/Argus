@@ -8,7 +8,7 @@ import argus.macros._
 
 import scala.io.Source
 
-class SchemaSpec extends FlatSpec with Matchers {
+class SchemaSpec extends FlatSpec with Matchers with ASTMatchers {
   import Schema._
 
   def diffs(parsed: Root, original: String) = JsonDiff.diff(parsed.toJson, parser.parse(original).toOption.get)
@@ -19,6 +19,49 @@ class SchemaSpec extends FlatSpec with Matchers {
 
     schema shouldBe a [Root]
     diffs(schema, jsonStr) shouldBe empty
+  }
+//https://github.com/scala/scala/blob/2.12.x/src/reflect/scala/reflect/internal/Printers.scala#L545
+  it should "properly escape bad type names" in {
+
+    val fieldsname = "`Address<(teststring|null)>`"
+    val json =
+      s"""
+        |{
+        |        "definitions": {
+        |          "$fieldsname": {
+        |            "type": "object",
+        |            "additionalProperties": false,
+        |            "properties": {
+        |              "number": { "type": "integer" },
+        |              "street": { "type": "string" }
+        |            }
+        |          },
+        |          "SSN": { "type": "string" }
+        |        },
+        |        "type": "object",
+        |        "additionalProperties": false,
+        |        "properties": {
+        |
+        |          "name": { "type": "string" },
+        |          "address": { "$$ref": "#/definitions/$fieldsname" },
+        |          "ssn": { "$$ref": "#/definitions/SSN" }
+        |        },
+        |        "required" : ["name"]
+        |      }
+      """.stripMargin
+    val base = schemaFromFields(
+      Field("name",    schemaFromRef("#/definitions/Name")) ::
+        Field("address", schemaFromRef(s"#/definitions/$fieldsname")) ::
+        Field("id",      schemaFromSimpleType(SimpleTypes.Integer)) ::
+        Nil
+    )
+    val defs = Schema.fromJson(json)
+    import runtimeUniverse._
+    val mb = new ModelBuilder[runtimeUniverse.type](runtimeUniverse)
+    import argus.schema.Schema._
+    val (typ: Tree, res) = mb.mkSchemaDef("Root", schema=base.copy(definitions = defs.definitions), "Foo" :: Nil)
+    val code = res.map(showCode(_)).mkString("\n")
+    println(code)
   }
 
   it should "decode enum's into a list of Json entries" in {
