@@ -477,9 +477,9 @@ class ModelBuilderSpec extends FlatSpec with Matchers with ASTMatchers {
   }
 
   it should "parse the vega-lite schema" in {
-    val schema = Schema.fromURL("https://vega.github.io/schema/vega-lite/v3.json")
+    val schema = Schema.fromURL("https://vega.github.io/schema/vega-lite/v3.0.0-rc12.json")
     val (typ: Tree, res) = mb.mkSchemaDef("Root", schema)
     val code = res.map(showCode(_)).mkString("\n")
-    //println(code)
+    println(code)
   }
 }
